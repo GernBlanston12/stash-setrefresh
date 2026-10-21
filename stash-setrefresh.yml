@@ -1,0 +1,36 @@
+name: Stash Set Refresh
+description: Adds EU/US refresh-rate buttons on 25/50 fps scenes
+version: 0.1.0
+
+ui:
+  javascript:
+    - stash-setrefresh.js
+  csp:
+    connect-src:
+      - http://192.168.50.122:8765
+
+settings:
+  output:
+    displayName: Output name
+    type: STRING
+    description: xrandr output (e.g. DisplayPort-2)
+  resolution:
+    displayName: Resolution
+    type: STRING
+    description: e.g. 3840x2160
+  lowRate:
+    displayName: Low refresh rate
+    type: NUMBER
+    description: Rate for 25/50 fps content (e.g. 50)
+  normalRate:
+    displayName: Normal refresh rate
+    type: NUMBER
+    description: Rate to return to (e.g. 120)
+  uiScale:
+    displayName: UI scale
+    type: NUMBER
+    description: Cinnamon scaling-factor (1 or 2)
+  endpoint:
+    displayName: Endpoint URL
+    type: STRING
+    description: Full URL of the listener on your desktop (e.g. http://192.168.50.122:8765/set)
