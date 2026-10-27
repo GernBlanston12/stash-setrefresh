@@ -1,26 +1,38 @@
 (function () {
   const PLUGIN_ID = "stash-setrefresh";
+  console.log("[stash-setrefresh] loaded");
 
   const baseURL = document.querySelector("base")?.getAttribute("href") ?? "/";
 
-  async function callGQL(query, variables = {}) {
-    try {
-      const res = await fetch(`${baseURL}graphql`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, variables }),
-      });
-      const json = await res.json();
-      if (json.errors) return null;
-      return json.data;
-    } catch (e) {
-      return null;
-    }
+  function callGQL(query, variables = {}) {
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${baseURL}graphql`, true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.onload = () => {
+        try {
+          const json = JSON.parse(xhr.responseText);
+          if (json.errors) {
+            console.error("[stash-setrefresh] GraphQL errors", json.errors);
+            resolve(null);
+          } else {
+            resolve(json.data);
+          }
+        } catch (e) {
+          console.error("[stash-setrefresh] GraphQL parse error", e);
+          resolve(null);
+        }
+      };
+      xhr.onerror = () => {
+        console.error("[stash-setrefresh] GraphQL network error");
+        resolve(null);
+      };
+      xhr.send(JSON.stringify({ query, variables }));
+    });
   }
 
   async function getSettings() {
-    const query = `query { configuration { plugins } }`;
-    const data = await callGQL(query);
+    const data = await callGQL(`query { configuration { plugins } }`);
     return data?.configuration?.plugins?.[PLUGIN_ID] ?? {};
   }
 
@@ -30,23 +42,21 @@
   }
 
   async function getSceneFrameRate(sceneId) {
-    const query = `
+    const data = await callGQL(`
       query FindScene($id: ID!) {
         findScene(id: $id) {
-          files {
-            ... on VideoFile {
-              frame_rate
-            }
-          }
+          files { ... on VideoFile { frame_rate } }
         }
       }
-    `;
-    const data = await callGQL(query, { id: sceneId });
+    `, { id: sceneId });
     return data?.findScene?.files?.[0]?.frame_rate ?? null;
   }
 
   function setRefresh(rate, settings) {
-    if (!settings.endpoint || !settings.output || !settings.resolution) return;
+    if (!settings.endpoint || !settings.output || !settings.resolution) {
+      console.warn("[stash-setrefresh] missing settings");
+      return;
+    }
 
     const url = new URL(settings.endpoint);
     url.searchParams.set("output", settings.output);
@@ -54,8 +64,12 @@
     url.searchParams.set("rate", rate);
     url.searchParams.set("scale", settings.uiScale ?? 1);
 
+    console.log("[stash-setrefresh] XHR to", url.toString());
+
     const xhr = new XMLHttpRequest();
     xhr.open("GET", url.toString(), true);
+    xhr.onload = () => console.log("[stash-setrefresh] XHR status", xhr.status);
+    xhr.onerror = () => console.error("[stash-setrefresh] XHR failed");
     xhr.send();
   }
 
@@ -65,31 +79,31 @@
     const low = settings.lowRate ?? 50;
     const normal = settings.normalRate ?? 120;
 
-    const eu = document.createElement("button");
-    eu.className = "stash-setrefresh-btn btn btn-secondary btn-sm";
-    eu.textContent = `🇪🇺 ${low}`;
-    eu.title = "Sets refresh rate, resolution, and UI scale as specified in Plugin Settings.";
-    eu.onclick = () => setRefresh(low, settings);
+    const makeBtn = (label, rate) => {
+      const btn = document.createElement("button");
+      btn.className = "stash-setrefresh-btn btn btn-secondary btn-sm";
+      btn.textContent = label;
+      btn.title = "Sets refresh rate, resolution, and UI scale as specified in Plugin Settings.";
+      btn.onclick = () => setRefresh(rate, settings);
+      return btn;
+    };
 
-    const us = document.createElement("button");
-    us.className = "stash-setrefresh-btn btn btn-secondary btn-sm";
-    us.textContent = `🇺🇸 ${normal}`;
-    us.title = "Sets refresh rate, resolution, and UI scale as specified in Plugin Settings.";
-    us.onclick = () => setRefresh(normal, settings);
-
-    container.appendChild(eu);
-    container.appendChild(us);
+    container.appendChild(makeBtn(`🇪🇺 ${low}`, low));
+    container.appendChild(makeBtn(`🇺🇸 ${normal}`, normal));
+    console.log("[stash-setrefresh] buttons added");
   }
 
   async function tryInject() {
     const match = location.pathname.match(/\/scenes\/(\d+)/);
     if (!match) return;
 
-    const sceneId = match[1];
     const settings = await getSettings();
-    if (!settings.endpoint || !settings.output || !settings.resolution) return;
+    if (!settings.endpoint || !settings.output || !settings.resolution) {
+      console.log("[stash-setrefresh] incomplete settings", settings);
+      return;
+    }
 
-    const fps = await getSceneFrameRate(sceneId);
+    const fps = await getSceneFrameRate(match[1]);
     if (!isLowFps(fps)) return;
 
     const targets = [
@@ -102,25 +116,17 @@
     if (targets.length) addButtons(targets[0], settings);
   }
 
-  // Aggressive retries on scene pages
-  function scheduleInject() {
+  function schedule() {
     if (!location.pathname.includes("/scenes/")) return;
-    [300, 800, 1500, 2500].forEach(delay => setTimeout(tryInject, delay));
+    [400, 1000, 2000].forEach(d => setTimeout(tryInject, d));
   }
 
-  const observer = new MutationObserver(() => {
-    if (location.pathname.includes("/scenes/")) scheduleInject();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Also watch for SPA navigation
-  let lastPath = location.pathname;
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
   setInterval(() => {
-    if (location.pathname !== lastPath) {
-      lastPath = location.pathname;
-      scheduleInject();
-    }
-  }, 500);
+    if (location.pathname.includes("/scenes/")) schedule();
+  }, 1500);
 
+  schedule();
+})();
   scheduleInject();
 })();
