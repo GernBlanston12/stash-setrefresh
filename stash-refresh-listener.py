@@ -45,6 +45,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
+            print(f"Calling script: {SCRIPT} {output} {resolution} {rate} {scale}", flush=True)
             subprocess.run(
                 [SCRIPT, output, resolution, rate, scale],
                 check=True,
